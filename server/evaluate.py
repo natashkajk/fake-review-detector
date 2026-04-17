@@ -3,46 +3,28 @@ from datasets import Dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer
 import numpy as np
 from sklearn.metrics import accuracy_score
-
+from sklearn.model_selection import train_test_split
 # загрузка данных
 df = pd.read_csv("data/clean_dataset.csv")
 
-# можно взять часть данных для проверки
-df = df.sample(5000)
+#import numpy as np
+from sklearn.metrics import accuracy_score
+from train import trainer, train_dataset, test_dataset
 
-dataset = Dataset.from_pandas(df)
+# TEST accuracy
+predictions = trainer.predict(test_dataset)
 
-# загрузка модели
-model = AutoModelForSequenceClassification.from_pretrained("./model")
-tokenizer = AutoTokenizer.from_pretrained("./model")
+preds = np.argmax(predictions.predictions, axis=1)
+labels = predictions.label_ids
 
-# токенизация
-def tokenize(batch):
-    return tokenizer(
-        batch["text"],
-        truncation=True,
-        padding="max_length",
-        max_length=128
-    )
+test_acc = accuracy_score(labels, preds)
+print("Test Accuracy:", test_acc)
 
-dataset = dataset.map(tokenize, batched=True)
-dataset = dataset.remove_columns(["text"])
-dataset.set_format("torch")
+# TRAIN accuracy
+train_preds = trainer.predict(train_dataset)
 
-# метрика
-def compute_metrics(eval_pred):
-    logits, labels = eval_pred
-    predictions = np.argmax(logits, axis=1)
-    return {"accuracy": accuracy_score(labels, predictions)}
+train_preds_labels = np.argmax(train_preds.predictions, axis=1)
+train_labels = train_preds.label_ids
 
-# Trainer
-trainer = Trainer(
-    model=model,
-    tokenizer=tokenizer,
-    compute_metrics=compute_metrics
-)
-
-# оценка
-results = trainer.evaluate(dataset)
-
-print(" Accuracy:", results["eval_accuracy"])
+train_acc = accuracy_score(train_labels, train_preds_labels)
+print("Train Accuracy:", train_acc)
