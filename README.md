@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Fake Review Detector
 
 AI-powered fake review detection system implemented as a Chrome browser extension with a Python FastAPI backend. Built for diploma project demonstration.
@@ -279,9 +280,9 @@ If using this project for academic purposes:
 ```bibtex
 @misc{fake_review_detector,
   title={Fake Review Detector: AI-Powered Browser Extension},
-  author={Your Name},
-  year={2024},
-  note={Diploma Project}
+  author={Nataly Kara},
+  year={2026},
+  note={Fake Review Detector: AI-Powered Browser Extension}
 }
 ```
 
@@ -297,4 +298,6 @@ This project is for educational purposes only.
 
 ## Contact
 
-For questions or issues, please contact [your-email@example.com]
+For questions or issues, please contact [natashkajjk@gmail.com]
+=======
+
