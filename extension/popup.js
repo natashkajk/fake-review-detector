@@ -51,6 +51,8 @@
     resultLabel: $('result-label'),
     confidenceValue: $('confidence-value'),
     confidenceBar: $('confidence-bar'),
+    evidenceLabel: $('evidence-label'),
+    evidenceText: $('evidence-text'),
     phrasesSection: $('phrases-section'),
     phrasesList: $('phrases-list'),
     btnClear: $('btn-clear'),
@@ -146,20 +148,25 @@
    * Render the analysis result in the popup.
    */
   function renderResult(data) {
-    const isReal = data.prediction === 'real';
+    const isOriginal = data.prediction === 'genuine';
     const confidencePercent = Math.round(data.confidence * 100);
 
     // Badge styling
-    els.resultBadge.className = `result-badge ${isReal ? 'badge-real' : 'badge-fake'}`;
-    els.resultIcon.innerHTML = isReal
+    els.resultBadge.className = `result-badge ${isOriginal ? 'badge-real' : 'badge-fake'}`;
+    els.resultIcon.innerHTML = isOriginal
       ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>'
       : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>';
-    els.resultLabel.textContent = isReal ? 'Real Review' : 'Fake Review';
+    els.resultLabel.textContent = isOriginal ? 'Original Review' : 'Fake Review';
 
     // Confidence
     els.confidenceValue.textContent = `${confidencePercent}%`;
     els.confidenceBar.style.width = `${confidencePercent}%`;
-    els.confidenceBar.className = `confidence-bar-fill ${isReal ? 'bar-real' : 'bar-fake'}`;
+    els.confidenceBar.className = `confidence-bar-fill ${isOriginal ? 'bar-real' : 'bar-fake'}`;
+
+    // Primary evidence text
+    els.evidenceLabel.textContent = isOriginal ? 'Reviewed Text' : 'Suspicious Text';
+    const evidenceText = data.evidence_text || (data.suspicious_phrases || [])[0] || data.review_text || '';
+    els.evidenceText.textContent = evidenceText;
 
     // Suspicious phrases
     const phrases = data.suspicious_phrases || [];

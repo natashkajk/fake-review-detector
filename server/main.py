@@ -65,6 +65,10 @@ class ReviewResponse(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, 
                               description="Confidence score (0-1)")
     review_text: str = Field(..., description="Analyzed review text")
+    evidence_text: str = Field(
+        default="",
+        description="Primary suspicious text span used as evidence for the verdict"
+    )
     suspicious_phrases: List[str] = Field(default=[], 
                                           description="List of suspicious phrases found")
     explanation: str = Field(..., description="Human-readable explanation")
@@ -241,6 +245,19 @@ class ExplainabilityEngine:
                         phrases.append(phrase)
         
         return phrases[:5]  # Limit to top 5
+
+    @staticmethod
+    def select_primary_evidence(text: str, suspicious_phrases: List[str]) -> str:
+        """Pick the strongest text fragment to show as evidence."""
+        if suspicious_phrases:
+            # Prefer the most specific phrase instead of a very short generic match.
+            return max(suspicious_phrases, key=lambda phrase: (len(phrase), phrase))
+
+        cleaned_text = " ".join(text.split())
+        if not cleaned_text:
+            return ""
+
+        return cleaned_text[:140] + ("..." if len(cleaned_text) > 140 else "")
     
     @staticmethod
     def generate_explanation(prediction: str, confidence: float, 
@@ -352,6 +369,7 @@ async def analyze_review(request: ReviewRequest):
         
         # Find suspicious phrases
         suspicious_phrases = ExplainabilityEngine.find_suspicious_phrases(text)
+        evidence_text = ExplainabilityEngine.select_primary_evidence(text, suspicious_phrases)
         
         # Generate explanation
         explanation = ExplainabilityEngine.generate_explanation(
@@ -364,6 +382,7 @@ async def analyze_review(request: ReviewRequest):
             prediction=prediction,
             confidence=round(confidence, 4),
             review_text=text[:500] + "..." if len(text) > 500 else text,
+            evidence_text=evidence_text,
             suspicious_phrases=suspicious_phrases,
             explanation=explanation,
             processing_time=round(processing_time, 3),

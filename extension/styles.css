@@ -263,6 +263,40 @@ body {
   background: var(--color-fake);
 }
 
+/* Evidence Section */
+.evidence-section {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.evidence-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.evidence-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.evidence-text {
+  margin: 0;
+  padding: 10px 12px;
+  background: #fff5f5;
+  border: 1px solid var(--color-fake-border);
+  border-left: 4px solid var(--color-fake);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--color-text);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
 /* Phrases Section */
 .phrases-section {
   width: 100%;
