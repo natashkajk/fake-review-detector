@@ -10,27 +10,33 @@
     "http://localhost:8000/*"
   ],
   "action": {
-    "default_popup": "extension/popup.html",
+    "default_popup": "client/popup.html",
     "default_icon": {
-      "16": "extension/icons/icon16.png",
-      "48": "extension/icons/icon48.png",
-      "128": "extension/icons/icon128.png"
+      "16": "client/icons/icon16.png",
+      "48": "client/icons/icon48.png",
+      "128": "client/icons/icon128.png"
     }
   },
   "background": {
-    "service_worker": "extension/background.js"
+    "service_worker": "client/background.js"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["extension/content.js"],
-      "css": ["extension/styles.css"],
+      "js": ["client/content.js"],
+      "css": ["client/content.css"],
       "run_at": "document_end"
     }
   ],
   "icons": {
-    "16": "extension/icons/icon16.png",
-    "48": "extension/icons/icon48.png",
-    "128": "extension/icons/icon128.png"
-  }
+    "16": "client/icons/icon16.png",
+    "48": "client/icons/icon48.png",
+    "128": "client/icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["client/icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
