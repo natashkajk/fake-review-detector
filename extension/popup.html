@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fake Review Detector</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+      </div>
+      <h1 class="header-title">Fake Review Detector</h1>
+    </header>
+
+    <!-- Content Area -->
+    <main class="main">
+      <!-- Initial State -->
+      <div id="state-initial" class="state">
+        <div class="empty-icon">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+        </div>
+        <p class="empty-text">Select review text on any page, then click the <strong>"Check Review"</strong> button that appears.</p>
+        <p class="empty-subtext">Or paste text below:</p>
+        <textarea id="manual-input" class="textarea" placeholder="Paste review text here..." rows="4"></textarea>
+        <button id="btn-analyze" class="btn btn-primary">Analyze</button>
+      </div>
+
+      <!-- Loading State -->
+      <div id="state-loading" class="state hidden">
+        <div class="spinner"></div>
+        <p class="loading-text">Analyzing review...</p>
+      </div>
+
+      <!-- Error State -->
+      <div id="state-error" class="state hidden">
+        <div class="error-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <p id="error-message" class="error-text">Something went wrong</p>
+        <button id="btn-retry" class="btn btn-secondary">Try Again</button>
+      </div>
+
+      <!-- Result State -->
+      <div id="state-result" class="state hidden">
+        <!-- Prediction Badge -->
+        <div id="result-badge" class="result-badge">
+          <span id="result-icon"></span>
+          <span id="result-label"></span>
+        </div>
+
+        <!-- Confidence Meter -->
+        <div class="confidence-section">
+          <div class="confidence-header">
+            <span class="confidence-label">Confidence</span>
+            <span id="confidence-value" class="confidence-percent"></span>
+          </div>
+          <div class="confidence-bar-bg">
+            <div id="confidence-bar" class="confidence-bar-fill"></div>
+          </div>
+        </div>
+
+        <!-- Suspicious Phrases -->
+        <div id="phrases-section" class="phrases-section hidden">
+          <h3 class="phrases-title">Suspicious Phrases</h3>
+          <ul id="phrases-list" class="phrases-list"></ul>
+        </div>
+
+        <!-- Actions -->
+        <div class="actions">
+          <button id="btn-clear" class="btn btn-text">Clear Highlights</button>
+          <button id="btn-new" class="btn btn-secondary">New Analysis</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span class="footer-status" id="api-status">API: checking...</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
