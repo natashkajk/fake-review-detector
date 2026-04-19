@@ -40,7 +40,14 @@ env/
 *.safetensors
 models/
 checkpoints/
-model/ 
+model/
+server/model/
+server/model_mixed/
+server/tmp_trainer/
+server/**/checkpoint-*/
+*.pt
+trainer_state.json
+training_args.bin
 .cache/
 # Logs
 *.log

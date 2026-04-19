@@ -20,7 +20,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 # Configuration
 # ============================================================================
 
-MODEL_NAME = "distilbert-base-uncased-finetuned-sst-2-english"
+MODEL_DIR = os.environ.get("MODEL_DIR", "./model_mixed")
 FALLBACK_MODEL = False  # Use rule-based fallback only if model loading fails
 MAX_TEXT_LENGTH = 512
 MIN_TEXT_LENGTH = 5
@@ -142,11 +142,12 @@ class ModelManager:
     def load_model(self):
         """Load the BERT model and tokenizer"""
         try:
-            print(f"[ModelManager] Loading model: {MODEL_NAME}")
+            resolved_model_dir = os.path.abspath(MODEL_DIR)
+            print(f"[ModelManager] Loading model: {resolved_model_dir}")
             print(f"[ModelManager] Using device: {self.device}")
             
-            self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-            self.model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+            self.tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
+            self.model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
             self.model.to(self.device)
             self.model.eval()
             self.model_loaded = True
@@ -186,10 +187,9 @@ class ModelManager:
                 outputs = self.model(**inputs)
                 probabilities = torch.softmax(outputs.logits, dim=1)
                 
-            # Get prediction (0 = negative/fake, 1 = positive/genuine for SST-2)
-            # We'll invert this logic for fake review detection
-            genuine_prob = probabilities[0][1].item()
-            fake_prob = probabilities[0][0].item()
+            # Local fine-tuned model uses id2label: 0 -> genuine, 1 -> fake
+            genuine_prob = probabilities[0][0].item()
+            fake_prob = probabilities[0][1].item()
             
             # Adjust based on text patterns
             pattern_score = self._calculate_pattern_score(text)
@@ -458,7 +458,7 @@ async def health_check():
     return HealthResponse(
         status="healthy",
         model_loaded=model_manager.model_loaded,
-        model_name=MODEL_NAME if model_manager.model_loaded else "rule-based-fallback"
+        model_name=os.path.abspath(MODEL_DIR) if model_manager.model_loaded else "rule-based-fallback"
     )
 
 
@@ -506,7 +506,7 @@ async def analyze_review(request: ReviewRequest):
             suspicious_phrases=suspicious_phrases,
             explanation=explanation,
             processing_time=round(processing_time, 3),
-            model_used=MODEL_NAME if model_manager.model_loaded else "rule-based"
+            model_used=os.path.abspath(MODEL_DIR) if model_manager.model_loaded else "rule-based"
         )
         
     except HTTPException:
