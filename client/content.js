@@ -12,6 +12,7 @@
   let floatingButton = null;
   let highlightOverlay = null;
   let currentSelection = '';
+  let currentRange = null;
   let isAnalyzing = false;
   
   // Configuration
@@ -25,8 +26,10 @@
     console.log('[Fake Review Detector] Initializing...');
     
     // Listen for text selection
-    document.addEventListener('mouseup', handleTextSelection);
-    document.addEventListener('keyup', handleTextSelection);
+    document.addEventListener('mouseup', handleTextSelection, true);
+    document.addEventListener('keyup', handleTextSelection, true);
+    document.addEventListener('touchend', handleTextSelection, true);
+    document.addEventListener('selectionchange', throttle(handleTextSelection, 50), true);
     
     // Listen for clicks outside to hide button
     document.addEventListener('mousedown', handleOutsideClick);
@@ -46,26 +49,77 @@
   function handleTextSelection(event) {
     // Small delay to ensure selection is complete
     setTimeout(() => {
-      const selection = window.getSelection();
-      const text = selection.toString().trim();
+      const selectionState = getSelectionState();
+      const text = selectionState.text;
       
       if (text && text.length >= MIN_TEXT_LENGTH && text.length <= MAX_TEXT_LENGTH) {
         currentSelection = text;
-        showFloatingButton(selection);
-      } else if (text.length < MIN_TEXT_LENGTH) {
+        currentRange = selectionState.range;
+        showFloatingButton(selectionState);
+      } else if (!text || text.length < MIN_TEXT_LENGTH || text.length > MAX_TEXT_LENGTH) {
+        currentRange = null;
         hideFloatingButton();
       }
     }, 10);
+  }
+
+  /**
+   * Get the current selection in a site-compatible way.
+   */
+  function getSelectionState() {
+    const activeElement = document.activeElement;
+
+    if (activeElement &&
+        (activeElement.tagName === 'TEXTAREA' ||
+         (activeElement.tagName === 'INPUT' && /^(text|search|url|tel|password)$/i.test(activeElement.type)))) {
+      const start = activeElement.selectionStart ?? 0;
+      const end = activeElement.selectionEnd ?? 0;
+      const text = (activeElement.value || '').slice(start, end).trim();
+
+      return {
+        text,
+        range: null,
+        rect: activeElement.getBoundingClientRect()
+      };
+    }
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return { text: '', range: null, rect: null };
+    }
+
+    const range = selection.getRangeAt(0).cloneRange();
+    const text = selection.toString().trim();
+    const rect = getRangeRect(range);
+
+    return { text, range, rect };
+  }
+
+  /**
+   * Get a stable rectangle for a selection range.
+   */
+  function getRangeRect(range) {
+    if (!range) return null;
+
+    const rect = range.getBoundingClientRect();
+    if (rect && (rect.width || rect.height)) {
+      return rect;
+    }
+
+    const rects = range.getClientRects();
+    if (rects && rects.length > 0) {
+      return rects[0];
+    }
+
+    return null;
   }
   
   /**
    * Show floating button near selection
    */
-  function showFloatingButton(selection) {
-    if (!selection.rangeCount) return;
-    
-    const range = selection.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
+  function showFloatingButton(selectionState) {
+    const rect = selectionState.rect || getRangeRect(selectionState.range || currentRange);
+    if (!rect) return;
     
     // Remove existing button
     hideFloatingButton();
@@ -139,7 +193,7 @@
       analyzeSelection();
     });
     
-    document.body.appendChild(floatingButton);
+    (document.body || document.documentElement).appendChild(floatingButton);
     
     // Create highlight overlay
     createHighlightOverlay(rect);
@@ -165,7 +219,7 @@
       animation: frd-highlightPulse 2s infinite;
     `;
     
-    document.body.appendChild(highlightOverlay);
+    (document.body || document.documentElement).appendChild(highlightOverlay);
   }
   
   /**
@@ -186,30 +240,27 @@
    * Reposition button on scroll
    */
   function repositionButton() {
-    if (floatingButton && currentSelection) {
-      const selection = window.getSelection();
-      if (selection.toString().trim() === currentSelection) {
-        const range = selection.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        
-        const buttonWidth = 120;
-        const buttonHeight = 36;
-        const offset = 10;
-        
-        let left = rect.left + (rect.width / 2) - (buttonWidth / 2);
-        let top = rect.top - buttonHeight - offset;
-        
-        if (left < 10) left = 10;
-        if (left + buttonWidth > window.innerWidth - 10) {
-          left = window.innerWidth - buttonWidth - 10;
-        }
-        if (top < 10) {
-          top = rect.bottom + offset;
-        }
-        
-        floatingButton.style.left = `${left}px`;
-        floatingButton.style.top = `${top}px`;
+    if (floatingButton && currentSelection && currentRange) {
+      const rect = getRangeRect(currentRange);
+      if (!rect) return;
+
+      const buttonWidth = 120;
+      const buttonHeight = 36;
+      const offset = 10;
+
+      let left = rect.left + (rect.width / 2) - (buttonWidth / 2);
+      let top = rect.top - buttonHeight - offset;
+
+      if (left < 10) left = 10;
+      if (left + buttonWidth > window.innerWidth - 10) {
+        left = window.innerWidth - buttonWidth - 10;
       }
+      if (top < 10) {
+        top = rect.bottom + offset;
+      }
+
+      floatingButton.style.left = `${left}px`;
+      floatingButton.style.top = `${top}px`;
     }
   }
   
@@ -265,6 +316,7 @@
     switch (message.action) {
       case 'resetSelection':
         currentSelection = '';
+        currentRange = null;
         hideFloatingButton();
         sendResponse({ success: true });
         break;
@@ -275,7 +327,7 @@
         break;
 
       case 'getSelection':
-        sendResponse({ success: true, text: currentSelection || window.getSelection().toString().trim() });
+        sendResponse({ success: true, text: currentSelection || getSelectionState().text });
         break;
         
       case 'ping':
