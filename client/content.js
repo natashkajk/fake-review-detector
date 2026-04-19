@@ -233,10 +233,20 @@
     
     // Store the selection for the popup
     chrome.storage.local.set({ pendingReview: currentSelection }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('[Fake Review Detector] Failed to save pending review:', chrome.runtime.lastError.message);
+      }
+
       // Open the popup
       chrome.runtime.sendMessage({ 
         action: 'openPopup',
         text: currentSelection 
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Fake Review Detector] Failed to notify background:', chrome.runtime.lastError.message);
+        } else {
+          console.log('[Fake Review Detector] Popup request sent:', response);
+        }
       });
       
       // Hide button
@@ -262,6 +272,10 @@
       case 'highlightSuspicious':
         highlightSuspiciousPhrases(message.phrases);
         sendResponse({ success: true });
+        break;
+
+      case 'getSelection':
+        sendResponse({ success: true, text: currentSelection || window.getSelection().toString().trim() });
         break;
         
       case 'ping':

@@ -4,10 +4,13 @@
   "version": "1.0.0",
   "description": "Analyze reviews and detect fake content with AI-powered explainability",
   "permissions": [
-    "activeTab"
+    "activeTab",
+    "storage",
+    "scripting"
   ],
   "host_permissions": [
-    "http://localhost:8000/*"
+    "http://localhost:8000/*",
+    "https://*/*"
   ],
   "action": {
     "default_popup": "client/popup.html",

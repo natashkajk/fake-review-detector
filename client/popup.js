@@ -55,8 +55,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     await analyzeReview(currentReviewText);
     await chrome.storage.local.remove('pendingReview');
   } else {
-    // Show instructions
-    showInstructions();
+    // Try to get the current selection directly from the content script
+    const selectedText = await getCurrentTabSelection();
+    if (selectedText) {
+      currentReviewText = selectedText;
+      await analyzeReview(currentReviewText);
+    } else {
+      // Show instructions
+      showInstructions();
+    }
   }
   
   // Setup event listeners
@@ -87,6 +94,26 @@ function setupEventListeners() {
       }
     });
   });
+}
+
+/**
+ * Request the current selection from the active tab.
+ */
+async function getCurrentTabSelection() {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeTab = tabs[0];
+
+    if (!activeTab || !activeTab.id) {
+      return '';
+    }
+
+    const response = await chrome.tabs.sendMessage(activeTab.id, { action: 'getSelection' });
+    return response?.text?.trim() || '';
+  } catch (error) {
+    console.warn('[Fake Review Detector] Could not get selection from content script:', error);
+    return '';
+  }
 }
 
 /**
