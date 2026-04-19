@@ -297,6 +297,13 @@ body {
   word-break: break-word;
 }
 
+.evidence-reason {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
 /* Phrases Section */
 .phrases-section {
   width: 100%;

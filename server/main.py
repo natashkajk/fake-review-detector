@@ -21,9 +21,43 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 # ============================================================================
 
 MODEL_NAME = "distilbert-base-uncased-finetuned-sst-2-english"
-FALLBACK_MODEL = True  # Use rule-based fallback if model loading fails
+FALLBACK_MODEL = False  # Use rule-based fallback only if model loading fails
 MAX_TEXT_LENGTH = 512
 MIN_TEXT_LENGTH = 5
+
+PATTERN_WEIGHTS = {
+    "fake_indicators": 0.30,
+    "unnatural_language": 0.20,
+    "excessive_praise": 0.15,
+    "generic_phrases": 0.10,
+    "repetitive_patterns": 0.10,
+}
+
+SIGNAL_LABELS = {
+    "fake_indicators": "Disclosure-style wording",
+    "unnatural_language": "Marketing-style phrasing",
+    "excessive_praise": "Overly enthusiastic language",
+    "generic_phrases": "Template-like wording",
+    "repetitive_patterns": "Repetitive text pattern",
+    "short_review": "Very short review",
+    "capitalization": "Heavy capitalization",
+    "exclamation_marks": "Excessive exclamation marks",
+    "all_caps_words": "All-caps emphasis",
+    "fallback_context": "Context summary",
+}
+
+SIGNAL_REASONS = {
+    "fake_indicators": "Disclosure wording often appears in incentivized or coordinated reviews, so it raises suspicion.",
+    "unnatural_language": "Call-to-action language sounds promotional rather than like a natural customer opinion.",
+    "excessive_praise": "Extreme praise without concrete detail often pushes the verdict toward fake.",
+    "generic_phrases": "Template-like phrases reduce originality and can increase the fake score.",
+    "repetitive_patterns": "Repeated characters or words can indicate spammy or low-quality synthetic text.",
+    "short_review": "Very short reviews provide too little detail, which makes the decision less trustworthy.",
+    "capitalization": "A high ratio of capital letters can look promotional or emotionally exaggerated.",
+    "exclamation_marks": "Too many exclamation marks make the review look more like promotion than feedback.",
+    "all_caps_words": "All-caps words add aggressive emphasis and slightly increase suspicion.",
+    "fallback_context": "No strong suspicious fragment was found, so this is the main text span used for context.",
+}
 
 # Suspicious patterns for explainability
 SUSPICIOUS_PATTERNS = {
@@ -68,6 +102,14 @@ class ReviewResponse(BaseModel):
     evidence_text: str = Field(
         default="",
         description="Primary suspicious text span used as evidence for the verdict"
+    )
+    evidence_label: str = Field(
+        default="",
+        description="Short label for the strongest trigger behind the verdict"
+    )
+    evidence_reason: str = Field(
+        default="",
+        description="Why the strongest trigger affected the confidence"
     )
     suspicious_phrases: List[str] = Field(default=[], 
                                           description="List of suspicious phrases found")
@@ -154,11 +196,9 @@ class ModelManager:
             
             # Combine model output with pattern analysis
             adjusted_fake_prob = (fake_prob * 0.6) + (pattern_score * 0.4)
-            
-            if adjusted_fake_prob > 0.5:
-                return "fake", adjusted_fake_prob
-            else:
-                return "genuine", 1 - adjusted_fake_prob
+
+            prediction = "fake" if adjusted_fake_prob > 0.5 else "genuine"
+            return prediction, self._calibrate_confidence(adjusted_fake_prob)
                 
         except Exception as e:
             print(f"[ModelManager] Prediction error: {e}")
@@ -166,12 +206,32 @@ class ModelManager:
     
     def _rule_based_predict(self, text: str) -> tuple[str, float]:
         """Rule-based prediction when model is not available"""
-        score = self._calculate_pattern_score(text)
-        
-        if score > 0.5:
-            return "fake", min(score + 0.2, 0.95)
-        else:
-            return "genuine", min(1 - score + 0.2, 0.95)
+        fake_probability = self._calculate_pattern_score(text)
+        prediction = "fake" if fake_probability > 0.5 else "genuine"
+        return prediction, self._calibrate_confidence(fake_probability, using_fallback=True)
+
+    @staticmethod
+    def _clamp(value: float, minimum: float, maximum: float) -> float:
+        """Clamp a value to the given range."""
+        return max(minimum, min(value, maximum))
+
+    def _calibrate_confidence(self, fake_probability: float, using_fallback: bool = False) -> float:
+        """
+        Convert the raw fake probability into a softer confidence score.
+
+        The previous implementation pushed many low-pattern reviews straight to 95%.
+        Here we instead scale confidence by distance from the decision boundary (0.5),
+        which makes middling cases look middling and reserves high confidence for
+        clearly separated examples.
+        """
+        distance_from_boundary = abs(fake_probability - 0.5) * 2  # 0..1
+        base = 0.50 + (distance_from_boundary * 0.38)
+
+        if using_fallback:
+            # Rule-based mode is less trustworthy than model-assisted mode.
+            base -= 0.08
+
+        return round(self._clamp(base, 0.50, 0.88), 4)
     
     def _calculate_pattern_score(self, text: str) -> float:
         """Calculate suspicious pattern score"""
@@ -183,14 +243,7 @@ class ModelManager:
             for pattern in patterns:
                 matches = len(re.findall(pattern, text_lower, re.IGNORECASE))
                 if matches > 0:
-                    if category == "fake_indicators":
-                        score += 0.3 * matches
-                    elif category == "excessive_praise":
-                        score += 0.15 * matches
-                    elif category == "unnatural_language":
-                        score += 0.2 * matches
-                    else:
-                        score += 0.1 * matches
+                    score += PATTERN_WEIGHTS.get(category, 0.10) * matches
         
         # Additional heuristics
         words = text.split()
@@ -226,38 +279,103 @@ model_manager = ModelManager()
 
 class ExplainabilityEngine:
     """Generates explanations and highlights suspicious phrases"""
+
+    @staticmethod
+    def analyze_signals(text: str) -> List[Dict[str, Any]]:
+        """Return ranked signals that contributed to the verdict."""
+        signals: List[Dict[str, Any]] = []
+        text_lower = text.lower()
+
+        for category, patterns in SUSPICIOUS_PATTERNS.items():
+            weight = PATTERN_WEIGHTS.get(category, 0.10)
+            for pattern in patterns:
+                for match in re.finditer(pattern, text_lower, re.IGNORECASE):
+                    start = max(0, match.start() - 10)
+                    end = min(len(text), match.end() + 10)
+                    fragment = text[start:end].strip()
+                    if not fragment:
+                        continue
+                    signals.append({
+                        "category": category,
+                        "weight": weight,
+                        "text": fragment,
+                        "label": SIGNAL_LABELS.get(category, "Suspicious signal"),
+                        "reason": SIGNAL_REASONS.get(category, "This pattern increased the suspiciousness score."),
+                    })
+
+        words = text.split()
+        if len(words) < 10:
+            signals.append({
+                "category": "short_review",
+                "weight": 0.10,
+                "text": " ".join(words[: min(len(words), 12)]),
+                "label": SIGNAL_LABELS["short_review"],
+                "reason": SIGNAL_REASONS["short_review"],
+            })
+
+        caps_ratio = sum(1 for c in text if c.isupper()) / max(len(text), 1)
+        if caps_ratio > 0.3:
+            signals.append({
+                "category": "capitalization",
+                "weight": 0.15,
+                "text": text[:140] + ("..." if len(text) > 140 else ""),
+                "label": SIGNAL_LABELS["capitalization"],
+                "reason": SIGNAL_REASONS["capitalization"],
+            })
+
+        excl_count = text.count('!')
+        if excl_count > 3:
+            signals.append({
+                "category": "exclamation_marks",
+                "weight": 0.1 * min(excl_count - 3, 3),
+                "text": text[:140] + ("..." if len(text) > 140 else ""),
+                "label": SIGNAL_LABELS["exclamation_marks"],
+                "reason": SIGNAL_REASONS["exclamation_marks"],
+            })
+
+        all_caps_words = [w for w in words if w.isupper() and len(w) > 2]
+        if all_caps_words:
+            signals.append({
+                "category": "all_caps_words",
+                "weight": 0.05 * len(all_caps_words),
+                "text": " ".join(all_caps_words[:5]),
+                "label": SIGNAL_LABELS["all_caps_words"],
+                "reason": SIGNAL_REASONS["all_caps_words"],
+            })
+
+        signals.sort(key=lambda signal: (signal["weight"], len(signal["text"])), reverse=True)
+        return signals
     
     @staticmethod
     def find_suspicious_phrases(text: str) -> List[str]:
         """Find suspicious phrases in the text"""
         phrases = []
-        text_lower = text.lower()
-        
-        for category, patterns in SUSPICIOUS_PATTERNS.items():
-            for pattern in patterns:
-                matches = re.finditer(pattern, text_lower, re.IGNORECASE)
-                for match in matches:
-                    # Get the actual matched text from original
-                    start = max(0, match.start() - 10)
-                    end = min(len(text), match.end() + 10)
-                    phrase = text[start:end].strip()
-                    if phrase and phrase not in phrases:
-                        phrases.append(phrase)
+        for signal in ExplainabilityEngine.analyze_signals(text):
+            phrase = signal["text"]
+            if phrase and phrase not in phrases:
+                phrases.append(phrase)
         
         return phrases[:5]  # Limit to top 5
 
     @staticmethod
-    def select_primary_evidence(text: str, suspicious_phrases: List[str]) -> str:
-        """Pick the strongest text fragment to show as evidence."""
-        if suspicious_phrases:
-            # Prefer the most specific phrase instead of a very short generic match.
-            return max(suspicious_phrases, key=lambda phrase: (len(phrase), phrase))
+    def select_primary_signal(text: str, suspicious_phrases: List[str]) -> Dict[str, str]:
+        """Pick the strongest signal to show as evidence."""
+        signals = ExplainabilityEngine.analyze_signals(text)
+        if signals:
+            primary_signal = signals[0]
+            return {
+                "text": primary_signal["text"],
+                "label": primary_signal["label"],
+                "reason": primary_signal["reason"],
+            }
 
         cleaned_text = " ".join(text.split())
-        if not cleaned_text:
-            return ""
-
-        return cleaned_text[:140] + ("..." if len(cleaned_text) > 140 else "")
+        fallback_text = cleaned_text[:140] + ("..." if len(cleaned_text) > 140 else "") if cleaned_text else ""
+        return {
+            "text": fallback_text,
+            "label": SIGNAL_LABELS["fallback_context"],
+            "reason": SIGNAL_REASONS["fallback_context"],
+        }
     
     @staticmethod
     def generate_explanation(prediction: str, confidence: float, 
@@ -369,7 +487,7 @@ async def analyze_review(request: ReviewRequest):
         
         # Find suspicious phrases
         suspicious_phrases = ExplainabilityEngine.find_suspicious_phrases(text)
-        evidence_text = ExplainabilityEngine.select_primary_evidence(text, suspicious_phrases)
+        primary_signal = ExplainabilityEngine.select_primary_signal(text, suspicious_phrases)
         
         # Generate explanation
         explanation = ExplainabilityEngine.generate_explanation(
@@ -382,7 +500,9 @@ async def analyze_review(request: ReviewRequest):
             prediction=prediction,
             confidence=round(confidence, 4),
             review_text=text[:500] + "..." if len(text) > 500 else text,
-            evidence_text=evidence_text,
+            evidence_text=primary_signal["text"],
+            evidence_label=primary_signal["label"],
+            evidence_reason=primary_signal["reason"],
             suspicious_phrases=suspicious_phrases,
             explanation=explanation,
             processing_time=round(processing_time, 3),

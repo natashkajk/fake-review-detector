@@ -53,6 +53,7 @@
     confidenceBar: $('confidence-bar'),
     evidenceLabel: $('evidence-label'),
     evidenceText: $('evidence-text'),
+    evidenceReason: $('evidence-reason'),
     phrasesSection: $('phrases-section'),
     phrasesList: $('phrases-list'),
     btnClear: $('btn-clear'),
@@ -164,9 +165,14 @@
     els.confidenceBar.className = `confidence-bar-fill ${isOriginal ? 'bar-real' : 'bar-fake'}`;
 
     // Primary evidence text
-    els.evidenceLabel.textContent = isOriginal ? 'Reviewed Text' : 'Suspicious Text';
+    els.evidenceLabel.textContent = data.evidence_label || (isOriginal ? 'Reviewed Text' : 'Suspicious Text');
     const evidenceText = data.evidence_text || (data.suspicious_phrases || [])[0] || data.review_text || '';
     els.evidenceText.textContent = evidenceText;
+    els.evidenceReason.textContent =
+      data.evidence_reason ||
+      (isOriginal
+        ? 'No strong suspicious trigger was detected, so the verdict leans on the overall review context.'
+        : 'This was the strongest trigger that pushed the review toward a fake verdict.');
 
     // Suspicious phrases
     const phrases = data.suspicious_phrases || [];
