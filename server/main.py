@@ -189,8 +189,9 @@ class ModelManager:
                 
             predicted_id = int(torch.argmax(probabilities, dim=1).item())
             prediction = self.model.config.id2label.get(predicted_id, "genuine").lower()
-            confidence = float(probabilities[0][predicted_id].item())
-            return prediction, round(confidence, 4)
+            raw_confidence = float(probabilities[0][predicted_id].item())
+            confidence = self._calibrate_model_confidence(raw_confidence)
+            return prediction, confidence
                 
         except Exception as e:
             print(f"[ModelManager] Prediction error: {e}")
@@ -206,6 +207,20 @@ class ModelManager:
     def _clamp(value: float, minimum: float, maximum: float) -> float:
         """Clamp a value to the given range."""
         return max(minimum, min(value, maximum))
+
+    def _calibrate_model_confidence(self, raw_confidence: float) -> float:
+        """
+        Soften raw model confidence.
+
+        Transformer classifiers often output overconfident softmax scores.
+        This keeps the class decision unchanged, but compresses extreme values
+        so the UI reflects uncertainty more realistically.
+        """
+        if raw_confidence <= 0.5:
+            return 0.5
+
+        adjusted = 0.5 + ((raw_confidence - 0.5) ** 0.65) * 0.42
+        return round(self._clamp(adjusted, 0.5, 0.94), 4)
 
     def _calibrate_confidence(self, fake_probability: float, using_fallback: bool = False) -> float:
         """
