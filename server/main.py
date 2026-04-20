@@ -6,6 +6,7 @@ AI-powered fake review detection using BERT NLP model
 import os
 import re
 import time
+import json
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
 
@@ -137,6 +138,7 @@ class ModelManager:
         self.tokenizer: Optional[AutoTokenizer] = None
         self.model: Optional[AutoModelForSequenceClassification] = None
         self.model_loaded = False
+        self.temperature = 1.0
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
     def load_model(self):
@@ -150,6 +152,7 @@ class ModelManager:
             self.model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
             self.model.to(self.device)
             self.model.eval()
+            self.temperature = self._load_temperature(MODEL_DIR)
             self.model_loaded = True
             
             print("[ModelManager] Model loaded successfully")
@@ -185,13 +188,13 @@ class ModelManager:
             # Predict
             with torch.no_grad():
                 outputs = self.model(**inputs)
-                probabilities = torch.softmax(outputs.logits, dim=1)
+                calibrated_logits = outputs.logits / self.temperature
+                probabilities = torch.softmax(calibrated_logits, dim=1)
                 
             predicted_id = int(torch.argmax(probabilities, dim=1).item())
             prediction = self.model.config.id2label.get(predicted_id, "genuine").lower()
-            raw_confidence = float(probabilities[0][predicted_id].item())
-            confidence = self._calibrate_model_confidence(raw_confidence)
-            return prediction, confidence
+            confidence = float(probabilities[0][predicted_id].item())
+            return prediction, round(confidence, 4)
                 
         except Exception as e:
             print(f"[ModelManager] Prediction error: {e}")
@@ -208,20 +211,20 @@ class ModelManager:
         """Clamp a value to the given range."""
         return max(minimum, min(value, maximum))
 
-    def _calibrate_model_confidence(self, raw_confidence: float) -> float:
-        """
-        Soften raw model confidence.
+    def _load_temperature(self, model_dir: str) -> float:
+        """Load learned temperature scaling value if available."""
+        temperature_path = os.path.join(model_dir, "temperature.json")
+        if not os.path.exists(temperature_path):
+            return 1.0
 
-        Transformer classifiers often output overconfident softmax scores.
-        This keeps the class decision unchanged, but compresses extreme values
-        so the UI reflects uncertainty more realistically.
-        """
-        if raw_confidence <= 0.5:
-            return 0.5
-
-        scaled = (raw_confidence - 0.5) / 0.5  # maps 0.5..1.0 -> 0..1
-        adjusted = 0.55 + (scaled ** 0.7) * 0.39
-        return round(self._clamp(adjusted, 0.55, 0.94), 4)
+        try:
+            with open(temperature_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            temperature = float(payload.get("temperature", 1.0))
+            return self._clamp(temperature, 0.5, 5.0)
+        except Exception as error:
+            print(f"[ModelManager] Failed to load temperature: {error}")
+            return 1.0
 
     def _calibrate_confidence(self, fake_probability: float, using_fallback: bool = False) -> float:
         """
