@@ -1048,6 +1048,21 @@ async def reviews_dashboard():
           </div>
           <div class="controls">
             <input id="limit" type="number" min="1" max="100" value="20" title="Items per page" />
+            <select id="predictionFilter">
+              <option value="all">All predictions</option>
+              <option value="fake">Prediction: fake</option>
+              <option value="genuine">Prediction: genuine</option>
+            </select>
+            <select id="humanLabelFilter">
+              <option value="all">All human labels</option>
+              <option value="unknown">Human: unknown</option>
+              <option value="fake">Human: fake</option>
+              <option value="genuine">Human: genuine</option>
+            </select>
+            <label class="status" style="display:flex; align-items:center; gap:8px;">
+              <input id="mismatchOnly" type="checkbox" />
+              mismatches only
+            </label>
             <button onclick="loadReviews()">Refresh</button>
             <button onclick="exportConfirmed()">Export Confirmed CSV</button>
           </div>
@@ -1159,6 +1174,30 @@ async def reviews_dashboard():
           `;
         }
 
+        function applyFilters(items) {
+          const predictionFilter = document.getElementById('predictionFilter').value;
+          const humanLabelFilter = document.getElementById('humanLabelFilter').value;
+          const mismatchOnly = document.getElementById('mismatchOnly').checked;
+
+          return items.filter((item) => {
+            if (predictionFilter !== 'all' && item.prediction !== predictionFilter) {
+              return false;
+            }
+            if (humanLabelFilter !== 'all' && item.human_label !== humanLabelFilter) {
+              return false;
+            }
+            if (mismatchOnly) {
+              if (item.human_label === 'unknown') {
+                return false;
+              }
+              if (item.prediction === item.human_label) {
+                return false;
+              }
+            }
+            return true;
+          });
+        }
+
         function changePage(direction) {
           const nextOffset = currentOffset + (direction * currentLimit);
           if (nextOffset < 0 || nextOffset >= currentTotal) {
@@ -1184,7 +1223,7 @@ async def reviews_dashboard():
 
           const response = await fetch(`/reviews/data?limit=${currentLimit}&offset=${currentOffset}`);
           const payload = await response.json();
-          const reviews = payload.items || [];
+          const reviews = applyFilters(payload.items || []);
           currentTotal = payload.total || 0;
 
           if (currentOffset >= currentTotal && currentTotal > 0) {
@@ -1194,13 +1233,30 @@ async def reviews_dashboard():
 
           const start = currentTotal === 0 ? 0 : currentOffset + 1;
           const end = Math.min(currentOffset + currentLimit, currentTotal);
-          summary.textContent = `Total reviews: ${currentTotal}. Showing ${start}-${end}.`;
+          summary.textContent = `Total reviews: ${currentTotal}. Showing ${reviews.length} on this page (${start}-${end} before filters).`;
           pageInfo.textContent = `Page ${currentTotal === 0 ? 0 : Math.floor(currentOffset / currentLimit) + 1}`;
           prevBtn.disabled = currentOffset <= 0;
           nextBtn.disabled = currentOffset + currentLimit >= currentTotal;
 
           list.innerHTML = reviews.map(renderReview).join('') || '<div class="card">No reviews yet.</div>';
         }
+
+        document.getElementById('limit').addEventListener('change', () => {
+          currentOffset = 0;
+          loadReviews();
+        });
+        document.getElementById('predictionFilter').addEventListener('change', () => {
+          currentOffset = 0;
+          loadReviews();
+        });
+        document.getElementById('humanLabelFilter').addEventListener('change', () => {
+          currentOffset = 0;
+          loadReviews();
+        });
+        document.getElementById('mismatchOnly').addEventListener('change', () => {
+          currentOffset = 0;
+          loadReviews();
+        });
 
         loadReviews();
       </script>
