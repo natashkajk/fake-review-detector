@@ -147,6 +147,25 @@ class FeedbackResponse(BaseModel):
     human_label: str
 
 
+class ReviewRecord(BaseModel):
+    """Stored review analysis row."""
+    analysis_id: int
+    review_text: str
+    prediction: str
+    confidence: float
+    evidence_text: str = ""
+    evidence_label: str = ""
+    evidence_reason: str = ""
+    suspicious_phrases: List[str] = Field(default_factory=list)
+    explanation: str = ""
+    model_used: str = ""
+    source_url: str = ""
+    human_label: str = "unknown"
+    notes: str = ""
+    created_at: str
+    updated_at: str
+
+
 # ============================================================================
 # Model Manager
 # ============================================================================
@@ -249,6 +268,65 @@ class ReviewDatabase:
             conn.commit()
             if cursor.rowcount == 0:
                 raise ValueError(f"Analysis id {analysis_id} was not found")
+
+    def get_recent_reviews(self, limit: int = 20) -> List[ReviewRecord]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT
+                    id,
+                    review_text,
+                    prediction,
+                    confidence,
+                    evidence_text,
+                    evidence_label,
+                    evidence_reason,
+                    suspicious_phrases,
+                    explanation,
+                    model_used,
+                    source_url,
+                    human_label,
+                    notes,
+                    created_at,
+                    updated_at
+                FROM review_analyses
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        records: List[ReviewRecord] = []
+        for row in rows:
+            suspicious_phrases = []
+            if row["suspicious_phrases"]:
+                try:
+                    suspicious_phrases = json.loads(row["suspicious_phrases"])
+                except json.JSONDecodeError:
+                    suspicious_phrases = []
+
+            records.append(
+                ReviewRecord(
+                    analysis_id=int(row["id"]),
+                    review_text=row["review_text"],
+                    prediction=row["prediction"],
+                    confidence=float(row["confidence"]),
+                    evidence_text=row["evidence_text"] or "",
+                    evidence_label=row["evidence_label"] or "",
+                    evidence_reason=row["evidence_reason"] or "",
+                    suspicious_phrases=suspicious_phrases,
+                    explanation=row["explanation"] or "",
+                    model_used=row["model_used"] or "",
+                    source_url=row["source_url"] or "",
+                    human_label=row["human_label"] or "unknown",
+                    notes=row["notes"] or "",
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                )
+            )
+
+        return records
 
 class ModelManager:
     """Manages the BERT model for fake review detection"""
@@ -708,6 +786,17 @@ async def save_feedback(request: FeedbackRequest):
         analysis_id=request.analysis_id,
         human_label=normalized_label,
     )
+
+
+@app.get("/reviews/recent", response_model=List[ReviewRecord])
+async def get_recent_reviews(limit: int = 20):
+    """
+    Return the most recent stored review analyses.
+
+    Useful for manual review, labeling, and building future retraining data.
+    """
+    safe_limit = max(1, min(limit, 100))
+    return review_db.get_recent_reviews(limit=safe_limit)
 
 
 # ============================================================================
