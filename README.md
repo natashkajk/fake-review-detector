@@ -1,303 +1,212 @@
-<<<<<<< HEAD
 # Fake Review Detector
 
-AI-powered fake review detection system implemented as a Chrome browser extension with a Python FastAPI backend. Built for diploma project demonstration.
+Fake Review Detector is a diploma-scale system for detecting suspicious product reviews in the browser. It combines a Chrome extension, a FastAPI backend, a transformer-based classifier, explainability outputs, and a human-in-the-loop feedback pipeline for collecting cleaner retraining data.
 
-## Features
+## What This Project Includes
 
-- **Chrome Extension (Manifest V3)**: Highlight any text on a webpage and click "Check Review"
-- **FastAPI Backend**: RESTful API with `/analyze` endpoint
-- **BERT NLP Model**: Pre-trained transformer model for text classification
-- **Explainability**: Highlights suspicious phrases and provides human-readable explanations
-- **Real-time Analysis**: Response time < 2 seconds
-- **Privacy-focused**: No user data storage
+- Chrome extension for selecting and checking review text directly on web pages
+- FastAPI backend for model inference and explainable responses
+- Fine-tuned DistilBERT-based text classifier for `fake` vs `genuine` review detection
+- Evidence extraction that highlights the most suspicious or most relevant text span
+- Manual review dashboard for labeling model outputs
+- SQLite storage for analyzed reviews and reviewer feedback
+- Retraining pipeline for extending the dataset with confirmed examples
+
+## System Architecture
+
+The project is organized as a complete ML application, not only as a model:
+
+1. User highlights review text in Chrome
+2. Extension sends the text to the FastAPI backend
+3. Backend runs model inference and explainability logic
+4. Result is returned as verdict, confidence, evidence text, and explanation
+5. Each analyzed review is stored in SQLite
+6. Human reviewer can confirm or correct the label in the `/reviews` dashboard
+7. Confirmed reviews can be exported and reused for retraining
+
+Detailed architecture: [docs/ARCHITECTURE.md](C:/Users/37369/OneDrive/Рабочий%20стол/fake-review-detector/docs/ARCHITECTURE.md)
 
 ## Project Structure
 
-```
+```text
 fake-review-detector/
-├── client/                    # Chrome Extension
-│   ├── manifest.json          # Extension manifest (v3)
-│   ├── popup.html             # Popup UI
-│   ├── popup.js               # Popup logic
-│   ├── styles.css             # Popup styles
-│   ├── content.js             # Content script for text selection
-│   ├── content.css            # Content script styles
-│   ├── background.js          # Service worker
-│   └── icons/                 # Extension icons
-│       ├── icon16.png
-│       ├── icon48.png
-│       └── icon128.png
-│
-├── server/                    # FastAPI Backend
-│   ├── main.py                # Main FastAPI application
-│   └── requirements.txt       # Python dependencies
-│
-└── README.md                  # This file
+├── client/                         Chrome extension used in the current build
+├── server/                         FastAPI backend, training, evaluation, calibration
+│   ├── data/                       Datasets and prepared data files
+│   ├── main.py                     Main API and review dashboard
+│   ├── train.py                    Training pipeline
+│   ├── evaluate.py                 Evaluation script
+│   ├── prepare_external_dataset.py External dataset normalizer
+│   ├── prepare_ott_dataset.py      Ott corpus converter
+│   ├── calibrate_temperature.py    Confidence calibration
+│   └── export_confirmed_reviews.py Export confirmed feedback to CSV
+├── manifest.json                   Root manifest for loading the extension from repo root
+├── QUICKSTART.md                   Setup notes
+└── docs/                           Diploma-oriented documentation
 ```
+
+## Core Features
+
+- `Fake` / `Original` verdict for highlighted review text
+- Explainable output with suspicious evidence text and explanation
+- Confidence shown in user-friendly form such as `Moderate (67%)`
+- Manual labeling workflow through [http://localhost:8000/reviews](http://localhost:8000/reviews)
+- Export of confirmed labels into a retraining-ready CSV
+- Ability to compare multiple trained models such as `model_mixed` and `model_final`
 
 ## Quick Start
 
-### Prerequisites
+### 1. Start the backend
 
-- Python 3.8 or higher
-- Google Chrome browser
-- pip (Python package manager)
-
-### Step 1: Start the Backend Server
-
-```bash
-# Navigate to server directory
-cd server
-
-# Create virtual environment (recommended)
-python -m venv venv
-
-# Activate virtual environment
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start the server
-python main.py
+```powershell
+cd "C:\Users\37369\OneDrive\Рабочий стол\fake-review-detector\server"
+.\venv\Scripts\python.exe main.py
 ```
 
-The server will start on `http://localhost:8000`
+Useful endpoints:
 
-You can verify it's running by visiting:
-- http://localhost:8000/ - API info
-- http://localhost:8000/docs - Interactive API documentation
-- http://localhost:8000/health - Health check
+- [http://localhost:8000/health](http://localhost:8000/health)
+- [http://localhost:8000/docs](http://localhost:8000/docs)
+- [http://localhost:8000/reviews](http://localhost:8000/reviews)
 
-### Step 2: Install the Chrome Extension
+### 2. Load the extension
 
-1. Open Google Chrome
-2. Navigate to `chrome://extensions/`
-3. Enable "Developer mode" (toggle in top right corner)
-4. Click "Load unpacked"
-5. Select the `client` folder from this project
-6. The extension icon should appear in your browser toolbar
+1. Open `chrome://extensions`
+2. Enable Developer Mode
+3. Click `Load unpacked`
+4. Select the project root:
+   `C:\Users\37369\OneDrive\Рабочий стол\fake-review-detector`
 
-### Step 3: Test the System
+The root manifest is configured to use the UI from `client/`.
 
-1. Visit any website with reviews (e.g., Amazon, Yelp, Trustpilot)
-2. Highlight a review text
-3. Click the "Check Review" button that appears
-4. View the analysis results in the popup
+### 3. Test the system
 
-## API Documentation
+1. Open a page with reviews
+2. Highlight review text
+3. Click `Check Review`
+4. Open the popup and inspect:
+   - verdict
+   - confidence
+   - evidence text
+   - explanation
 
-### POST /analyze
+## Model Training and Data Preparation
 
-Analyze a review text for authenticity.
+### Supported training workflow
 
-**Request:**
-```json
-{
-  "text": "This product is absolutely amazing! Best purchase ever!"
-}
+The training pipeline supports:
+
+- multiple CSV datasets in a single run
+- automatic text and label column detection
+- label normalization from formats such as `CG/OR`, `fake/genuine`, `0/1`
+- train/validation/test split
+- weighted loss for class imbalance
+- metrics: accuracy, precision, recall, F1
+
+### Example training command
+
+```powershell
+cd "C:\Users\37369\OneDrive\Рабочий стол\fake-review-detector\server"
+.\venv\Scripts\python.exe train.py --data_paths data\fake_reviews_prepared.csv data\clean_dataset.csv data\ott_prepared.csv data\hard_cases.csv --output_dir model_final --num_train_epochs 4 --max_length 256
 ```
 
-**Response:**
-```json
-{
-  "prediction": "fake",
-  "confidence": 0.8234,
-  "review_text": "This product is absolutely amazing!...",
-  "suspicious_phrases": ["absolutely amazing", "Best purchase ever"],
-  "explanation": "This review shows strong indicators of being fake. Found 2 suspicious pattern(s).",
-  "processing_time": 0.245,
-  "model_used": "distilbert-base-uncased-finetuned-sst-2-english"
-}
+### Dataset preparation commands
+
+Prepare generic external CSV:
+
+```powershell
+.\venv\Scripts\python.exe prepare_external_dataset.py --input_path data\fake_reviews_dataset.csv --output_path data\fake_reviews_prepared.csv
 ```
 
-### GET /health
+Prepare Ott corpus:
 
-Check API health status.
-
-**Response:**
-```json
-{
-  "status": "healthy",
-  "model_loaded": true,
-  "model_name": "distilbert-base-uncased-finetuned-sst-2-english",
-  "version": "1.0.0"
-}
+```powershell
+.\venv\Scripts\python.exe prepare_ott_dataset.py
 ```
 
-## How It Works
+Calibrate model confidence:
 
-### Detection Algorithm
-
-1. **Text Preprocessing**: Input text is cleaned and tokenized
-2. **BERT Model Inference**: The pre-trained model processes the text
-3. **Pattern Analysis**: Rule-based heuristics check for suspicious patterns
-4. **Score Combination**: Model output and pattern scores are combined
-5. **Explainability**: Suspicious phrases are extracted and highlighted
-
-### Suspicious Patterns Detected
-
-- **Excessive Praise**: Overly enthusiastic language ("best ever", "amazing product")
-- **Generic Phrases**: Common fake review templates
-- **Unnatural Language**: Marketing-style language
-- **Repetitive Patterns**: Repeated characters or words
-- **Fake Indicators**: Disclosure phrases, promotional language
-
-### Model Details
-
-- **Base Model**: DistilBERT (lightweight BERT variant)
-- **Fine-tuning**: SST-2 sentiment classification
-- **Fallback**: Rule-based detection if model fails to load
-- **Device**: Automatically uses GPU if available, otherwise CPU
-
-## Configuration
-
-### Backend Environment Variables
-
-```bash
-PORT=8000              # Server port
-HOST=0.0.0.0           # Server host
+```powershell
+.\venv\Scripts\python.exe calibrate_temperature.py --model_dir model_mixed --data_paths data\fake_reviews_prepared.csv data\clean_dataset.csv
 ```
 
-### Extension Settings
+Model lifecycle details: [docs/MODEL_LIFECYCLE.md](C:/Users/37369/OneDrive/Рабочий%20стол/fake-review-detector/docs/MODEL_LIFECYCLE.md)
 
-Edit `client/background.js` to configure:
-- `API_BASE_URL`: Backend API URL
-- `MIN_TEXT_LENGTH`: Minimum text length for analysis
+## Human-in-the-Loop Feedback
 
-## Development
+The project includes a feedback loop suitable for a diploma demonstration:
 
-### Running Tests
+- every analyzed review is stored in `server/reviews.db`
+- reviewer can inspect analyses at [http://localhost:8000/reviews](http://localhost:8000/reviews)
+- reviewer can set `fake`, `genuine`, or `unknown`
+- confirmed reviews can be exported into a new training dataset
 
-```bash
-# Backend tests (example)
-cd server
-pytest tests/
+Export confirmed feedback:
+
+```powershell
+cd "C:\Users\37369\OneDrive\Рабочий стол\fake-review-detector\server"
+.\venv\Scripts\python.exe export_confirmed_reviews.py --output_path data\confirmed_reviews.csv
 ```
 
-### Extension Debugging
+Or use the `Export Confirmed CSV` button in the `/reviews` dashboard.
 
-1. Open `chrome://extensions/`
-2. Find "Fake Review Detector"
-3. Click "background page" to debug service worker
-4. Right-click extension icon → "Inspect popup" to debug popup
+## Current Experimental Results
 
-### API Testing with curl
+The project already contains several model iterations.
 
-```bash
-# Health check
-curl http://localhost:8000/health
+| Model | Training Data | Accuracy | Precision | Recall | F1 |
+|---|---|---:|---:|---:|---:|
+| `model_single` | `fake_reviews_prepared.csv` only | 0.9827 | 0.9750 | 0.9908 | 0.9828 |
+| `model_mixed` | `fake_reviews_prepared + clean_dataset` | 0.9786 | 0.9653 | 0.9927 | 0.9788 |
+| `model_final` | `fake_reviews_prepared + clean_dataset + ott + hard_cases` | 0.9780 | 0.9656 | 0.9913 | 0.9783 |
 
-# Analyze review
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"text": "This product is amazing! Highly recommend!"}'
-```
+Interpretation:
 
-## Production Deployment
+- `model_single` performs best on its own held-out split but is more likely to overfit one dataset style
+- `model_mixed` is currently the preferred deployment candidate
+- `model_final` did not improve global F1, but its purpose was to reduce dataset bias
 
-### Backend Deployment (Example with Docker)
+Full analysis: [docs/RESULTS_AND_ERROR_ANALYSIS.md](C:/Users/37369/OneDrive/Рабочий%20стол/fake-review-detector/docs/RESULTS_AND_ERROR_ANALYSIS.md)
 
-```dockerfile
-FROM python:3.9-slim
+## Explainability
 
-WORKDIR /app
+The backend returns:
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+- `prediction`
+- `confidence`
+- `evidence_text`
+- `evidence_label`
+- `evidence_reason`
+- `explanation`
 
-COPY main.py .
+This helps present the system as an explainable decision-support tool rather than a black-box classifier.
 
-EXPOSE 8000
+## Known Limitations
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
+- The model is still sensitive to dataset bias
+- Short reviews remain difficult to classify reliably
+- Confidence is calibrated but still not a perfect real-world probability
+- Explainability combines model output with heuristic evidence extraction
+- Multilingual reviews may be handled less reliably than English reviews
 
-### HTTPS Configuration
+These limitations are documented explicitly because they are important in an academic project.
 
-For production, use a reverse proxy (nginx) with SSL certificates:
+## Documents for Diploma Presentation
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name api.yourdomain.com;
-    
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-    
-    location / {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
+- Architecture: [docs/ARCHITECTURE.md](C:/Users/37369/OneDrive/Рабочий%20стол/fake-review-detector/docs/ARCHITECTURE.md)
+- Model lifecycle: [docs/MODEL_LIFECYCLE.md](C:/Users/37369/OneDrive/Рабочий%20стол/fake-review-detector/docs/MODEL_LIFECYCLE.md)
+- Results and error analysis: [docs/RESULTS_AND_ERROR_ANALYSIS.md](C:/Users/37369/OneDrive/Рабочий%20стол/fake-review-detector/docs/RESULTS_AND_ERROR_ANALYSIS.md)
+- Demo script: [docs/DEMO_SCRIPT.md](C:/Users/37369/OneDrive/Рабочий%20стол/fake-review-detector/docs/DEMO_SCRIPT.md)
+- Suggested thesis chapter structure: [docs/THESIS_STRUCTURE.md](C:/Users/37369/OneDrive/Рабочий%20стол/fake-review-detector/docs/THESIS_STRUCTURE.md)
 
-Update the extension's `API_BASE_URL` to use the HTTPS endpoint.
+## Recommended Final Demo Flow
 
-## Troubleshooting
-
-### Backend Issues
-
-**Problem**: Model fails to load
-- **Solution**: The system will automatically use rule-based fallback
-
-**Problem**: CUDA out of memory
-- **Solution**: The system automatically falls back to CPU
-
-**Problem**: Slow response times
-- **Solution**: First request may be slower due to model loading. Subsequent requests are cached.
-
-### Extension Issues
-
-**Problem**: "Check Review" button doesn't appear
-- **Solution**: Ensure text is at least 10 characters long
-- **Solution**: Check that the content script is injected (refresh page)
-
-**Problem**: "Cannot connect to server" error
-- **Solution**: Verify backend is running on localhost:8000
-- **Solution**: Check CORS settings in backend
-
-**Problem**: Extension not loading
-- **Solution**: Check manifest.json syntax
-- **Solution**: Ensure all required permissions are granted
-
-## Performance Metrics
-
-- **Average Response Time**: ~200-500ms (with model cached)
-- **Model Size**: ~250MB (DistilBERT)
-- **Memory Usage**: ~500MB RAM
-- **Throughput**: ~50 requests/second
-
-## Academic Citation
-
-If using this project for academic purposes:
-
-```bibtex
-@misc{fake_review_detector,
-  title={Fake Review Detector: AI-Powered Browser Extension},
-  author={Nataly Kara},
-  year={2026},
-  note={Fake Review Detector: AI-Powered Browser Extension}
-}
-```
+1. Show the extension analyzing a highlighted review
+2. Show explanation and evidence text in the popup
+3. Open `/reviews` and demonstrate manual correction
+4. Export confirmed reviews
+5. Explain how those labels become new retraining data
 
 ## License
 
-This project is for educational purposes only.
-
-## Acknowledgments
-
-- Hugging Face Transformers library
-- FastAPI framework
-- DistilBERT model by Google
-
-## Contact
-
-For questions or issues, please contact [natashkajjk@gmail.com]
-=======
-
+This project is intended for educational and diploma use.
