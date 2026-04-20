@@ -219,8 +219,9 @@ class ModelManager:
         if raw_confidence <= 0.5:
             return 0.5
 
-        adjusted = 0.5 + ((raw_confidence - 0.5) ** 0.65) * 0.42
-        return round(self._clamp(adjusted, 0.5, 0.94), 4)
+        scaled = (raw_confidence - 0.5) / 0.5  # maps 0.5..1.0 -> 0..1
+        adjusted = 0.55 + (scaled ** 0.7) * 0.39
+        return round(self._clamp(adjusted, 0.55, 0.94), 4)
 
     def _calibrate_confidence(self, fake_probability: float, using_fallback: bool = False) -> float:
         """
