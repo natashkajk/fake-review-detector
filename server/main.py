@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 import torch
 import numpy as np
@@ -797,6 +798,291 @@ async def get_recent_reviews(limit: int = 20):
     """
     safe_limit = max(1, min(limit, 100))
     return review_db.get_recent_reviews(limit=safe_limit)
+
+
+@app.get("/reviews", response_class=HTMLResponse)
+async def reviews_dashboard():
+    """Simple HTML dashboard for browsing recent analyzed reviews."""
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Review Analyses</title>
+      <style>
+        :root {
+          --bg: #f6f7fb;
+          --card: #ffffff;
+          --text: #18212f;
+          --muted: #667085;
+          --border: #e5e7eb;
+          --fake: #b42318;
+          --fake-bg: #fef3f2;
+          --genuine: #067647;
+          --genuine-bg: #ecfdf3;
+          --unknown: #6941c6;
+          --unknown-bg: #f4f3ff;
+        }
+        * { box-sizing: border-box; }
+        body {
+          margin: 0;
+          padding: 24px;
+          font-family: "Segoe UI", system-ui, sans-serif;
+          color: var(--text);
+          background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+        }
+        .wrap {
+          max-width: 1200px;
+          margin: 0 auto;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 16px;
+          margin-bottom: 20px;
+        }
+        h1 {
+          margin: 0;
+          font-size: 28px;
+        }
+        .sub {
+          color: var(--muted);
+          margin-top: 6px;
+        }
+        .controls {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+        }
+        input, button, select, textarea {
+          font: inherit;
+        }
+        input {
+          padding: 10px 12px;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          background: white;
+        }
+        button {
+          border: 0;
+          border-radius: 10px;
+          padding: 10px 14px;
+          background: #111827;
+          color: white;
+          cursor: pointer;
+        }
+        .list {
+          display: grid;
+          gap: 14px;
+        }
+        .card {
+          background: var(--card);
+          border: 1px solid var(--border);
+          border-radius: 18px;
+          padding: 18px;
+          box-shadow: 0 10px 25px rgba(15, 23, 42, 0.05);
+        }
+        .top {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+          margin-bottom: 12px;
+        }
+        .meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border-radius: 999px;
+          padding: 6px 10px;
+          font-size: 12px;
+          font-weight: 600;
+        }
+        .fake { background: var(--fake-bg); color: var(--fake); }
+        .genuine { background: var(--genuine-bg); color: var(--genuine); }
+        .unknown { background: var(--unknown-bg); color: var(--unknown); }
+        .text {
+          font-size: 15px;
+          line-height: 1.6;
+          margin: 10px 0 14px;
+          white-space: pre-wrap;
+        }
+        .grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+        .field {
+          background: #f8fafc;
+          border-radius: 12px;
+          padding: 10px 12px;
+        }
+        .label {
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          color: var(--muted);
+          margin-bottom: 5px;
+        }
+        .value {
+          font-size: 14px;
+          line-height: 1.5;
+        }
+        .footer {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+        }
+        .footer select, .footer textarea {
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 10px 12px;
+          background: white;
+        }
+        .footer textarea {
+          min-width: 280px;
+          min-height: 42px;
+          resize: vertical;
+        }
+        .status {
+          color: var(--muted);
+          font-size: 13px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="wrap">
+        <div class="header">
+          <div>
+            <h1>Review Analyses</h1>
+            <div class="sub">Recent reviews analyzed by the extension. Use manual labels to build cleaner retraining data.</div>
+          </div>
+          <div class="controls">
+            <input id="limit" type="number" min="1" max="100" value="20" />
+            <button onclick="loadReviews()">Refresh</button>
+          </div>
+        </div>
+        <div id="list" class="list"></div>
+      </div>
+      <script>
+        function esc(value) {
+          return String(value ?? '').replace(/[&<>"]/g, (char) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;'
+          }[char]));
+        }
+
+        function badgeClass(value) {
+          if (value === 'fake') return 'fake';
+          if (value === 'genuine') return 'genuine';
+          return 'unknown';
+        }
+
+        async function saveFeedback(id) {
+          const label = document.getElementById(`label-${id}`).value;
+          const notes = document.getElementById(`notes-${id}`).value;
+          const status = document.getElementById(`status-${id}`);
+          status.textContent = 'Saving...';
+
+          const response = await fetch('/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              analysis_id: id,
+              human_label: label,
+              notes
+            })
+          });
+
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            status.textContent = payload.detail || 'Failed to save';
+            return;
+          }
+
+          status.textContent = 'Saved';
+          loadReviews();
+        }
+
+        function renderReview(item) {
+          const suspicious = (item.suspicious_phrases || []).length
+            ? item.suspicious_phrases.map((phrase) => `<div class="badge unknown">${esc(phrase)}</div>`).join('')
+            : '<div class="value">None</div>';
+
+          return `
+            <div class="card">
+              <div class="top">
+                <div class="meta">
+                  <div class="badge ${badgeClass(item.prediction)}">Prediction: ${esc(item.prediction)}</div>
+                  <div class="badge ${badgeClass(item.human_label)}">Human label: ${esc(item.human_label)}</div>
+                  <div class="badge unknown">Confidence: ${Math.round((item.confidence || 0) * 100)}%</div>
+                  <div class="badge unknown">ID: ${item.analysis_id}</div>
+                </div>
+                <div class="status">${esc(item.created_at)}</div>
+              </div>
+              <div class="text">${esc(item.review_text)}</div>
+              <div class="grid">
+                <div class="field">
+                  <div class="label">Evidence Label</div>
+                  <div class="value">${esc(item.evidence_label || '—')}</div>
+                </div>
+                <div class="field">
+                  <div class="label">Evidence Text</div>
+                  <div class="value">${esc(item.evidence_text || '—')}</div>
+                </div>
+                <div class="field">
+                  <div class="label">Reason</div>
+                  <div class="value">${esc(item.evidence_reason || '—')}</div>
+                </div>
+                <div class="field">
+                  <div class="label">Suspicious Phrases</div>
+                  <div class="value">${suspicious}</div>
+                </div>
+              </div>
+              <div class="field" style="margin-bottom: 12px;">
+                <div class="label">Explanation</div>
+                <div class="value">${esc(item.explanation || '—')}</div>
+              </div>
+              <div class="footer">
+                <select id="label-${item.analysis_id}">
+                  <option value="unknown" ${item.human_label === 'unknown' ? 'selected' : ''}>unknown</option>
+                  <option value="genuine" ${item.human_label === 'genuine' ? 'selected' : ''}>genuine</option>
+                  <option value="fake" ${item.human_label === 'fake' ? 'selected' : ''}>fake</option>
+                </select>
+                <textarea id="notes-${item.analysis_id}" placeholder="Optional notes">${esc(item.notes || '')}</textarea>
+                <button onclick="saveFeedback(${item.analysis_id})">Save Label</button>
+                <span id="status-${item.analysis_id}" class="status"></span>
+              </div>
+            </div>
+          `;
+        }
+
+        async function loadReviews() {
+          const limit = Math.max(1, Math.min(100, parseInt(document.getElementById('limit').value || '20', 10)));
+          const list = document.getElementById('list');
+          list.innerHTML = '<div class="card">Loading...</div>';
+
+          const response = await fetch(`/reviews/recent?limit=${limit}`);
+          const reviews = await response.json();
+          list.innerHTML = reviews.map(renderReview).join('') || '<div class="card">No reviews yet.</div>';
+        }
+
+        loadReviews();
+      </script>
+    </body>
+    </html>
+    """
 
 
 # ============================================================================
