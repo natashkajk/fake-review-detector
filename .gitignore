@@ -48,6 +48,9 @@ server/tmp_trainer/
 server/**/checkpoint-*/
 server/data/op_spam_v3/
 server/data/ott_prepared.csv
+server/reviews.db
+server/reviews.db-shm
+server/reviews.db-wal
 *.pt
 trainer_state.json
 training_args.bin

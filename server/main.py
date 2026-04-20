@@ -7,6 +7,7 @@ import os
 import re
 import time
 import json
+import sqlite3
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
 
@@ -22,6 +23,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 # ============================================================================
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "./model_mixed")
+DB_PATH = os.environ.get("DB_PATH", "./reviews.db")
 FALLBACK_MODEL = False  # Use rule-based fallback only if model loading fails
 MAX_TEXT_LENGTH = 512
 MIN_TEXT_LENGTH = 5
@@ -96,6 +98,10 @@ class ReviewRequest(BaseModel):
 
 class ReviewResponse(BaseModel):
     """Response model for review analysis"""
+    analysis_id: Optional[int] = Field(
+        default=None,
+        description="Database id of the stored analysis row"
+    )
     prediction: str = Field(..., description="Prediction: 'fake' or 'genuine'")
     confidence: float = Field(..., ge=0.0, le=1.0, 
                               description="Confidence score (0-1)")
@@ -127,9 +133,122 @@ class HealthResponse(BaseModel):
     version: str = "1.0.0"
 
 
+class FeedbackRequest(BaseModel):
+    """Manual label update for a stored analysis row."""
+    analysis_id: int = Field(..., ge=1, description="Stored analysis id")
+    human_label: str = Field(..., description="'fake', 'genuine', or 'unknown'")
+    notes: str = Field(default="", max_length=1000, description="Optional reviewer notes")
+
+
+class FeedbackResponse(BaseModel):
+    """Response after updating manual review feedback."""
+    success: bool
+    analysis_id: int
+    human_label: str
+
+
 # ============================================================================
 # Model Manager
 # ============================================================================
+
+class ReviewDatabase:
+    """Simple SQLite storage for analyzed reviews and manual feedback."""
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+
+    def initialize(self) -> None:
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS review_analyses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    review_text TEXT NOT NULL,
+                    prediction TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    evidence_text TEXT,
+                    evidence_label TEXT,
+                    evidence_reason TEXT,
+                    suspicious_phrases TEXT,
+                    explanation TEXT,
+                    model_used TEXT,
+                    source_url TEXT,
+                    human_label TEXT DEFAULT 'unknown',
+                    notes TEXT DEFAULT '',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_review_analyses_created_at
+                ON review_analyses(created_at DESC)
+                """
+            )
+            conn.commit()
+
+    def insert_analysis(
+        self,
+        *,
+        review_text: str,
+        prediction: str,
+        confidence: float,
+        evidence_text: str,
+        evidence_label: str,
+        evidence_reason: str,
+        suspicious_phrases: List[str],
+        explanation: str,
+        model_used: str,
+        source_url: str = "",
+    ) -> int:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO review_analyses (
+                    review_text,
+                    prediction,
+                    confidence,
+                    evidence_text,
+                    evidence_label,
+                    evidence_reason,
+                    suspicious_phrases,
+                    explanation,
+                    model_used,
+                    source_url
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    review_text,
+                    prediction,
+                    confidence,
+                    evidence_text,
+                    evidence_label,
+                    evidence_reason,
+                    json.dumps(suspicious_phrases, ensure_ascii=False),
+                    explanation,
+                    model_used,
+                    source_url,
+                ),
+            )
+            conn.commit()
+            return int(cursor.lastrowid)
+
+    def update_feedback(self, analysis_id: int, human_label: str, notes: str = "") -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE review_analyses
+                SET human_label = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (human_label, notes, analysis_id),
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                raise ValueError(f"Analysis id {analysis_id} was not found")
 
 class ModelManager:
     """Manages the BERT model for fake review detection"""
@@ -282,6 +401,7 @@ class ModelManager:
 
 # Global model manager
 model_manager = ModelManager()
+review_db = ReviewDatabase(DB_PATH)
 
 
 # ============================================================================
@@ -424,6 +544,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup
     print("[FastAPI] Starting up...")
+    review_db.initialize()
     model_manager.load_model()
     print("[FastAPI] Ready to accept requests")
     yield
@@ -506,8 +627,21 @@ async def analyze_review(request: ReviewRequest):
         )
         
         processing_time = time.time() - start_time
+        model_used = os.path.abspath(MODEL_DIR) if model_manager.model_loaded else "rule-based"
+        analysis_id = review_db.insert_analysis(
+            review_text=text,
+            prediction=prediction,
+            confidence=round(confidence, 4),
+            evidence_text=primary_signal["text"],
+            evidence_label=primary_signal["label"],
+            evidence_reason=primary_signal["reason"],
+            suspicious_phrases=suspicious_phrases,
+            explanation=explanation,
+            model_used=model_used,
+        )
         
         return ReviewResponse(
+            analysis_id=analysis_id,
             prediction=prediction,
             confidence=round(confidence, 4),
             review_text=text[:500] + "..." if len(text) > 500 else text,
@@ -517,7 +651,7 @@ async def analyze_review(request: ReviewRequest):
             suspicious_phrases=suspicious_phrases,
             explanation=explanation,
             processing_time=round(processing_time, 3),
-            model_used=os.path.abspath(MODEL_DIR) if model_manager.model_loaded else "rule-based"
+            model_used=model_used
         )
         
     except HTTPException:
@@ -547,6 +681,33 @@ async def batch_analyze(reviews: List[ReviewRequest]):
             })
     
     return {"results": results, "count": len(results)}
+
+
+@app.post("/feedback", response_model=FeedbackResponse)
+async def save_feedback(request: FeedbackRequest):
+    """
+    Save a human-reviewed label for an analyzed review.
+
+    Use this to curate future retraining data from real extension traffic.
+    """
+    normalized_label = request.human_label.strip().lower()
+    if normalized_label not in {"fake", "genuine", "unknown"}:
+        raise HTTPException(status_code=400, detail="human_label must be 'fake', 'genuine', or 'unknown'")
+
+    try:
+        review_db.update_feedback(
+            analysis_id=request.analysis_id,
+            human_label=normalized_label,
+            notes=request.notes.strip(),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+    return FeedbackResponse(
+        success=True,
+        analysis_id=request.analysis_id,
+        human_label=normalized_label,
+    )
 
 
 # ============================================================================
