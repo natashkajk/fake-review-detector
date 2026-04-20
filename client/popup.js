@@ -191,13 +191,14 @@ function showResult(result) {
   // Update verdict
   const isFake = result.prediction === 'fake';
   const confidence = Math.round(result.confidence * 100);
+  const confidenceLabel = getConfidenceLabel(confidence);
   
   elements.verdictBadge.className = `verdict-badge ${isFake ? 'fake' : 'genuine'}`;
   elements.verdictIcon.textContent = isFake ? '⚠' : '✓';
   elements.verdictText.textContent = isFake ? 'Potentially Fake' : 'Genuine Review';
   
   // Update confidence
-  elements.confidenceValue.textContent = `${confidence}%`;
+  elements.confidenceValue.textContent = `${confidenceLabel} (${confidence}%)`;
   
   // Update progress bar
   elements.progressBar.className = `progress-bar ${isFake ? 'fake' : 'genuine'}`;
@@ -221,6 +222,19 @@ function showResult(result) {
     (isFake 
       ? 'This review contains patterns commonly found in fake reviews, such as overly promotional language or suspicious phrasing.' 
       : 'This review appears to be genuine based on its natural language patterns and authentic tone.');
+}
+
+/**
+ * Convert a numeric confidence score into a friendlier UI label.
+ */
+function getConfidenceLabel(confidence) {
+  if (confidence >= 85) {
+    return 'High';
+  }
+  if (confidence >= 65) {
+    return 'Moderate';
+  }
+  return 'Low';
 }
 
 /**
