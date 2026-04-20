@@ -43,8 +43,11 @@ checkpoints/
 model/
 server/model/
 server/model_mixed/
+server/model_final/
 server/tmp_trainer/
 server/**/checkpoint-*/
+server/data/op_spam_v3/
+server/data/ott_prepared.csv
 *.pt
 trainer_state.json
 training_args.bin

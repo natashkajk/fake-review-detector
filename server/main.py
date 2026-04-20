@@ -187,18 +187,10 @@ class ModelManager:
                 outputs = self.model(**inputs)
                 probabilities = torch.softmax(outputs.logits, dim=1)
                 
-            # Local fine-tuned model uses id2label: 0 -> genuine, 1 -> fake
-            genuine_prob = probabilities[0][0].item()
-            fake_prob = probabilities[0][1].item()
-            
-            # Adjust based on text patterns
-            pattern_score = self._calculate_pattern_score(text)
-            
-            # Combine model output with pattern analysis
-            adjusted_fake_prob = (fake_prob * 0.6) + (pattern_score * 0.4)
-
-            prediction = "fake" if adjusted_fake_prob > 0.5 else "genuine"
-            return prediction, self._calibrate_confidence(adjusted_fake_prob)
+            predicted_id = int(torch.argmax(probabilities, dim=1).item())
+            prediction = self.model.config.id2label.get(predicted_id, "genuine").lower()
+            confidence = float(probabilities[0][predicted_id].item())
+            return prediction, round(confidence, 4)
                 
         except Exception as e:
             print(f"[ModelManager] Prediction error: {e}")
