@@ -16,9 +16,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import torch
 import numpy as np
+import pandas as pd
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # ============================================================================
@@ -95,12 +96,14 @@ SUSPICIOUS_PATTERNS = {
 
 class ReviewRequest(BaseModel):
     """Request model for review analysis"""
+    model_config = ConfigDict(protected_namespaces=())
     text: str = Field(..., min_length=MIN_TEXT_LENGTH, max_length=2000, 
                       description="Review text to analyze")
 
 
 class ReviewResponse(BaseModel):
     """Response model for review analysis"""
+    model_config = ConfigDict(protected_namespaces=())
     analysis_id: Optional[int] = Field(
         default=None,
         description="Database id of the stored analysis row"
@@ -130,6 +133,7 @@ class ReviewResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response"""
+    model_config = ConfigDict(protected_namespaces=())
     status: str
     model_loaded: bool
     model_name: str
@@ -138,6 +142,7 @@ class HealthResponse(BaseModel):
 
 class FeedbackRequest(BaseModel):
     """Manual label update for a stored analysis row."""
+    model_config = ConfigDict(protected_namespaces=())
     analysis_id: int = Field(..., ge=1, description="Stored analysis id")
     human_label: str = Field(..., description="'fake', 'genuine', or 'unknown'")
     notes: str = Field(default="", max_length=1000, description="Optional reviewer notes")
@@ -145,6 +150,7 @@ class FeedbackRequest(BaseModel):
 
 class FeedbackResponse(BaseModel):
     """Response after updating manual review feedback."""
+    model_config = ConfigDict(protected_namespaces=())
     success: bool
     analysis_id: int
     human_label: str
@@ -152,6 +158,7 @@ class FeedbackResponse(BaseModel):
 
 class ReviewRecord(BaseModel):
     """Stored review analysis row."""
+    model_config = ConfigDict(protected_namespaces=())
     analysis_id: int
     review_text: str
     prediction: str
@@ -171,6 +178,7 @@ class ReviewRecord(BaseModel):
 
 class ReviewListResponse(BaseModel):
     """Paginated review list response."""
+    model_config = ConfigDict(protected_namespaces=())
     items: List[ReviewRecord]
     total: int
     limit: int
