@@ -8,12 +8,14 @@ import re
 import time
 import json
 import sqlite3
+import io
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import torch
 import numpy as np
@@ -167,6 +169,14 @@ class ReviewRecord(BaseModel):
     updated_at: str
 
 
+class ReviewListResponse(BaseModel):
+    """Paginated review list response."""
+    items: List[ReviewRecord]
+    total: int
+    limit: int
+    offset: int
+
+
 # ============================================================================
 # Model Manager
 # ============================================================================
@@ -271,8 +281,14 @@ class ReviewDatabase:
                 raise ValueError(f"Analysis id {analysis_id} was not found")
 
     def get_recent_reviews(self, limit: int = 20) -> List[ReviewRecord]:
+        return self.get_reviews_page(limit=limit, offset=0).items
+
+    def get_reviews_page(self, limit: int = 20, offset: int = 0) -> ReviewListResponse:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
+            total = int(
+                conn.execute("SELECT COUNT(*) FROM review_analyses").fetchone()[0]
+            )
             rows = conn.execute(
                 """
                 SELECT
@@ -294,8 +310,9 @@ class ReviewDatabase:
                 FROM review_analyses
                 ORDER BY id DESC
                 LIMIT ?
+                OFFSET ?
                 """,
-                (limit,),
+                (limit, offset),
             ).fetchall()
 
         records: List[ReviewRecord] = []
@@ -327,7 +344,32 @@ class ReviewDatabase:
                 )
             )
 
-        return records
+        return ReviewListResponse(items=records, total=total, limit=limit, offset=offset)
+
+    def get_confirmed_reviews_for_export(self, min_confidence: float = 0.0) -> pd.DataFrame:
+        with sqlite3.connect(self.db_path) as conn:
+            query = """
+                SELECT
+                    review_text AS text,
+                    CASE
+                        WHEN human_label = 'genuine' THEN 0
+                        WHEN human_label = 'fake' THEN 1
+                    END AS label,
+                    human_label,
+                    confidence,
+                    notes,
+                    created_at
+                FROM review_analyses
+                WHERE human_label IN ('fake', 'genuine')
+                  AND confidence >= ?
+                ORDER BY id DESC
+            """
+            df = pd.read_sql_query(query, conn, params=(min_confidence,))
+
+        if df.empty:
+            return df
+
+        return df.drop_duplicates(subset=["text"]).reset_index(drop=True)
 
 class ModelManager:
     """Manages the BERT model for fake review detection"""
@@ -800,6 +842,32 @@ async def get_recent_reviews(limit: int = 20):
     return review_db.get_recent_reviews(limit=safe_limit)
 
 
+@app.get("/reviews/data", response_model=ReviewListResponse)
+async def get_reviews_data(limit: int = 20, offset: int = 0):
+    """Paginated review data for the HTML dashboard."""
+    safe_limit = max(1, min(limit, 100))
+    safe_offset = max(0, offset)
+    return review_db.get_reviews_page(limit=safe_limit, offset=safe_offset)
+
+
+@app.get("/reviews/export-confirmed")
+async def export_confirmed_reviews(min_confidence: float = 0.0):
+    """Download confirmed reviews as retraining-ready CSV."""
+    safe_confidence = max(0.0, min(min_confidence, 1.0))
+    df = review_db.get_confirmed_reviews_for_export(min_confidence=safe_confidence)
+
+    output = io.StringIO()
+    if df.empty:
+        output.write("text,label\n")
+    else:
+        df[["text", "label"]].to_csv(output, index=False)
+
+    output.seek(0)
+    filename = "confirmed_reviews.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers=headers)
+
+
 @app.get("/reviews", response_class=HTMLResponse)
 async def reviews_dashboard():
     """Simple HTML dashboard for browsing recent analyzed reviews."""
@@ -855,6 +923,7 @@ async def reviews_dashboard():
           display: flex;
           gap: 10px;
           align-items: center;
+          flex-wrap: wrap;
         }
         input, button, select, textarea {
           font: inherit;
@@ -957,6 +1026,18 @@ async def reviews_dashboard():
           color: var(--muted);
           font-size: 13px;
         }
+        .summary {
+          color: var(--muted);
+          font-size: 14px;
+          margin-bottom: 18px;
+        }
+        .pager {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          justify-content: flex-end;
+          margin-top: 18px;
+        }
       </style>
     </head>
     <body>
@@ -964,16 +1045,26 @@ async def reviews_dashboard():
         <div class="header">
           <div>
             <h1>Review Analyses</h1>
-            <div class="sub">Recent reviews analyzed by the extension. Use manual labels to build cleaner retraining data.</div>
           </div>
           <div class="controls">
-            <input id="limit" type="number" min="1" max="100" value="20" />
+            <input id="limit" type="number" min="1" max="100" value="20" title="Items per page" />
             <button onclick="loadReviews()">Refresh</button>
+            <button onclick="exportConfirmed()">Export Confirmed CSV</button>
           </div>
         </div>
+        <div id="summary" class="summary"></div>
         <div id="list" class="list"></div>
+        <div class="pager">
+          <button id="prevBtn" onclick="changePage(-1)">Previous</button>
+          <span id="pageInfo" class="status"></span>
+          <button id="nextBtn" onclick="changePage(1)">Next</button>
+        </div>
       </div>
       <script>
+        let currentOffset = 0;
+        let currentLimit = 20;
+        let currentTotal = 0;
+
         function esc(value) {
           return String(value ?? '').replace(/[&<>"]/g, (char) => ({
             '&': '&amp;',
@@ -1068,13 +1159,46 @@ async def reviews_dashboard():
           `;
         }
 
-        async function loadReviews() {
-          const limit = Math.max(1, Math.min(100, parseInt(document.getElementById('limit').value || '20', 10)));
-          const list = document.getElementById('list');
-          list.innerHTML = '<div class="card">Loading...</div>';
+        function changePage(direction) {
+          const nextOffset = currentOffset + (direction * currentLimit);
+          if (nextOffset < 0 || nextOffset >= currentTotal) {
+            return;
+          }
+          currentOffset = nextOffset;
+          loadReviews();
+        }
 
-          const response = await fetch(`/reviews/recent?limit=${limit}`);
-          const reviews = await response.json();
+        function exportConfirmed() {
+          window.open('/reviews/export-confirmed', '_blank');
+        }
+
+        async function loadReviews() {
+          currentLimit = Math.max(1, Math.min(100, parseInt(document.getElementById('limit').value || '20', 10)));
+          const list = document.getElementById('list');
+          const summary = document.getElementById('summary');
+          const pageInfo = document.getElementById('pageInfo');
+          const prevBtn = document.getElementById('prevBtn');
+          const nextBtn = document.getElementById('nextBtn');
+          list.innerHTML = '<div class="card">Loading...</div>';
+          summary.textContent = '';
+
+          const response = await fetch(`/reviews/data?limit=${currentLimit}&offset=${currentOffset}`);
+          const payload = await response.json();
+          const reviews = payload.items || [];
+          currentTotal = payload.total || 0;
+
+          if (currentOffset >= currentTotal && currentTotal > 0) {
+            currentOffset = Math.max(0, currentTotal - currentLimit);
+            return loadReviews();
+          }
+
+          const start = currentTotal === 0 ? 0 : currentOffset + 1;
+          const end = Math.min(currentOffset + currentLimit, currentTotal);
+          summary.textContent = `Total reviews: ${currentTotal}. Showing ${start}-${end}.`;
+          pageInfo.textContent = `Page ${currentTotal === 0 ? 0 : Math.floor(currentOffset / currentLimit) + 1}`;
+          prevBtn.disabled = currentOffset <= 0;
+          nextBtn.disabled = currentOffset + currentLimit >= currentTotal;
+
           list.innerHTML = reviews.map(renderReview).join('') || '<div class="card">No reviews yet.</div>';
         }
 
