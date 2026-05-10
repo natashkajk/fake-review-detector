@@ -8,7 +8,6 @@
 </head>
 <body>
   <div class="container">
-    <!-- Header -->
     <div class="header">
       <div class="logo">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -24,32 +23,38 @@
       </div>
     </div>
 
-    <!-- Instructions -->
-    <div class="instructions" id="instructions">
-      <div class="instruction-icon">💡</div>
-      <p>Highlight any review text on a webpage, then click the <strong>"Check Review"</strong> button that appears.</p>
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-title">Inline analysis</div>
+        <div class="toggle-subtitle">Enable or disable the on-page review checker</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="extensionToggle">
+        <span class="switch-slider"></span>
+      </label>
     </div>
 
-    <!-- Loading State -->
+    <div class="instructions" id="instructions">
+      <div class="instruction-icon">Tip</div>
+      <p>Select review text on any page and click <strong>Check review</strong>. The result and the <strong>Full report</strong> button will appear next to the text.</p>
+    </div>
+
     <div class="loading-state" id="loadingState" style="display: none;">
       <div class="spinner"></div>
       <p>Analyzing review with AI...</p>
       <span class="sub-text">This may take a few seconds</span>
     </div>
 
-    <!-- Error State -->
     <div class="error-state" id="errorState" style="display: none;">
-      <div class="error-icon">⚠️</div>
+      <div class="error-icon">!</div>
       <p id="errorMessage">Something went wrong</p>
       <button id="retryBtn" class="btn-secondary">Try Again</button>
     </div>
 
-    <!-- Result State -->
     <div class="result-state" id="resultState" style="display: none;">
-      <!-- Verdict Badge -->
       <div class="verdict-section">
         <div class="verdict-badge" id="verdictBadge">
-          <span class="verdict-icon" id="verdictIcon">✓</span>
+          <span class="verdict-icon" id="verdictIcon">OK</span>
           <span class="verdict-text" id="verdictText">Genuine Review</span>
         </div>
         <div class="confidence-score">
@@ -58,38 +63,37 @@
         </div>
       </div>
 
-      <!-- Progress Bar -->
       <div class="progress-container">
         <div class="progress-bar" id="progressBar"></div>
       </div>
 
-      <!-- Review Text Preview -->
       <div class="review-preview">
         <h3>Review Text</h3>
         <div class="review-text" id="reviewText"></div>
       </div>
 
-      <!-- Suspicious Phrases -->
       <div class="suspicious-section" id="suspiciousSection">
-        <h3>⚠️ Suspicious Elements</h3>
+        <h3>Suspicious Elements</h3>
         <ul class="suspicious-list" id="suspiciousList"></ul>
       </div>
 
-      <!-- Explanation -->
       <div class="explanation-section">
-        <h3>🧠 AI Analysis</h3>
+        <h3>Evidence Text</h3>
+        <p id="evidenceText"></p>
+      </div>
+
+      <div class="explanation-section">
+        <h3>AI Analysis</h3>
         <p id="explanationText"></p>
       </div>
 
-      <!-- Actions -->
       <div class="actions">
-        <button id="newCheckBtn" class="btn-primary">Check Another Review</button>
+        <button id="newCheckBtn" class="btn-primary">Reset Selection</button>
       </div>
     </div>
 
-    <!-- Footer -->
     <div class="footer">
-      <span>Powered by BERT NLP Model</span>
+      <span>Powered by local DistilBERT model</span>
       <span class="version">v1.0.0</span>
     </div>
   </div>

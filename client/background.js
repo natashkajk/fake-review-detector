@@ -19,7 +19,8 @@ chrome.runtime.onInstalled.addListener((details) => {
   chrome.storage.local.set({
     apiUrl: API_BASE_URL,
     autoHighlight: true,
-    minTextLength: 10
+    minTextLength: 10,
+    extensionEnabled: true
   });
 });
 
@@ -59,8 +60,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  */
 async function handleOpenPopup(message, sender, sendResponse) {
   try {
-    // Store the text for the popup
-    await chrome.storage.local.set({ pendingReview: message.text });
+    const payload = {};
+    if (message.text) {
+      payload.pendingReview = message.text;
+    }
+    if (message.result) {
+      payload.analysisResult = message.result;
+    }
+
+    if (Object.keys(payload).length > 0) {
+      await chrome.storage.local.set(payload);
+    }
     
     // Open the popup programmatically
     chrome.action.openPopup();
